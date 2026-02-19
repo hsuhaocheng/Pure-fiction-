@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PURE FICTION | Audio Player</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* 字體與變數 */
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&family=JetBrains+Mono:wght@400&display=swap');
+
+        :root {
+            --tape-height: 55vh;
+            --line-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .writing-vertical-lr {
+            writing-mode: vertical-lr;
+        }
+
+        @keyframes marquee {
+            0% {
+                transform: translateX(0);
+            }
+
+            100% {
+                transform: translateX(-50%);
+            }
+        }
+
+        .animate-marquee {
+            animation: marquee 20s linear infinite;
+            display: inline-flex;
+        }
+
+        .animate-spin-slow {
+            animation: spin 8s linear infinite;
+            /* Base speed */
+        }
+
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* 隱藏原生捲軸 */
+        body::-webkit-scrollbar {
+            display: none;
+        }
+
+        body {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* 核心結構：讓內容固定在畫面中心 */
+        .viewport-proxy {
+            height: 600vh;
+            /* 決定滾動總長度 */
+            width: 100%;
+        }
+
+        .fixed-stage {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            background: radial-gradient(circle at center, #1a1a2e 0%, #000 80%);
+            color: #EBEBEB;
+            pointer-events: none;
+            /* Allow scroll events to pass through to body */
+        }
+
+        /* Bg that fades out */
+        #intro-bg {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            /* Lowest */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 1;
+            will-change: opacity;
+        }
+
+        #intro-bg img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            filter: grayscale(100%) contrast(1.2);
+            /* Black and White */
+            opacity: 0.5;
+        }
+
+        /* 圖片膠卷本體 */
+        #tape-strip {
+            position: absolute;
+            display: flex;
+            align-items: center;
+            gap: 5vw;
+            left: 100vw;
+            /* Start off-screen right */
+            will-change: transform;
+            top: 50%;
+            z-index: 2;
+            /* Above intro bg */
+        }
+
+        .tape-item {
+            width: 50vw;
+            height: var(--tape-height);
+            flex-shrink: 0;
+            overflow: hidden;
+            border-radius: 4px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+            background: #000;
+            position: relative;
+        }
+
+        .tape-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scale(1.1);
+        }
+
+        /* 卡帶 UI 框架 - 霧面效果 */
+        .cassette-ui {
+            position: absolute;
+            z-index: 5;
+            width: 95vw;
+            height: 85vh;
+            max-width: 1400px;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transform-origin: center center;
+
+            /* Glass/Matte Effect */
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 24px;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+            transition: background 0.3s;
+        }
+
+        .frame-border {
+            position: absolute;
+            inset: 0;
+            border: 1px solid var(--line-color);
+            border-radius: 24px;
+            pointer-events: none;
+        }
+
+        .top-bar {
+            height: 120px;
+            padding: 0 40px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            /* Left align for A side */
+            border-radius: 24px 24px 0 0;
+            position: relative;
+        }
+
+        /* A Side Marker */
+        .side-marker {
+            width: 40px;
+            height: 40px;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: bold;
+            font-size: 14px;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+
+        .bottom-mech {
+            height: 100%;
+            /* Take remaining space to center visually? Or just fixed height at bottom? User asked for centered buttons. */
+            /* Let's make spools centered in the cassette */
+            position: absolute;
+            inset: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            pointer-events: none;
+        }
+
+        /* The Matte Box for Spools */
+        .spool-box {
+            width: 60%;
+            max-width: 500px;
+            height: 140px;
+            background: rgba(255, 255, 255, 0.08);
+            /* More visible matte */
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: center;
+            /* Center spools */
+            align-items: center;
+            gap: 60px;
+            /* Space between spools */
+            pointer-events: auto;
+            /* Enable interaction */
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        /* 齒輪動畫部分 */
+        .spool {
+            width: 60px;
+            height: 60px;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.2s, border-color 0.2s;
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .spool:hover {
+            border-color: #0033FF;
+            transform: scale(1.1);
+        }
+
+        .spool-inner {
+            width: 20px;
+            height: 20px;
+            background: #fff;
+            transition: fill 0.2s;
+        }
+
+        /* 左邊是播放鍵 */
+        #spool-left .spool-inner {
+            clip-path: polygon(10% 10%, 90% 50%, 10% 90%);
+            /* Play Triangle shape */
+            width: 24px;
+            height: 24px;
+            transform: translateX(2px);
+            /* Visual correction */
+        }
+
+        #spool-left.playing .spool-inner {
+            clip-path: polygon(15% 10%, 35% 10%, 35% 90%, 15% 90%, 65% 10%, 85% 10%, 85% 90%, 65% 90%);
+            /* Pause */
+            transform: translateX(0);
+        }
+
+        /* Right Spool */
+        #spool-right .spool-inner {
+            clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+        }
+
+        /* Adjust existing UI to float above */
+        #main-ui-layer {
+            position: absolute;
+            inset: 0;
+            z-index: 30;
+            /* Highest layer for controls */
+            pointer-events: none;
+        }
+
+        #main-ui-layer nav,
+        #main-ui-layer footer {
+            pointer-events: auto;
+        }
+
+        /* Bottom Left Title */
+        .title-fixed {
+            position: fixed;
+            bottom: 40px;
+            left: 40px;
+            z-index: 40;
+            pointer-events: none;
+        }
+    </style>
+</head>
+
+<body class="bg-[#0A0A0A] text-[#EBEBEB] font-sans selection:bg-[#0033FF] selection:text-white">
+
+    <!-- Scroll Proxy -->
+    <div class="viewport-proxy"></div>
+
+    <div class="fixed-stage">
+
+        <!-- Intro Background (B/W) -->
+        <div id="intro-bg">
+            <img src="assets\gm_artstyle_06.png" alt="Intro Background">
+        </div>
+
+        <!-- Tape Strip (Images Behind, Enter from Right) -->
+        <div id="tape-strip">
+            <div class="tape-item">
+                <img src="assets\gm_artstyle_06.png" alt="Tape 1">
+                <div class="absolute inset-0 bg-black/20"></div>
+            </div>
+            <div class="tape-item">
+                <img src="assets\gm_artstyle_06.png" alt="Tape 2" style="filter: hue-rotate(90deg) contrast(1.2);">
+            </div>
+            <div class="tape-item">
+                <img src="assets\gm_artstyle_06.png" alt="Tape 3" style="filter: hue-rotate(180deg) saturate(0.5);">
+            </div>
+            <div class="tape-item">
+                <img src="assets\gm_artstyle_06.png" alt="Tape 4" style="filter: invert(1);">
+            </div>
+        </div>
+
+        <!-- Cassette Background UI (Matte Glass Overlay) -->
+        <div id="cassette-ui" class="cassette-ui">
+            <div class="frame-border"></div>
+            <div class="top-bar">
+                <div class="side-marker">A</div>
+            </div>
+
+            <div class="bottom-mech">
+                <div class="spool-box" id="spool-box">
+                    <!-- Left Spool: Play Button -->
+                    <div id="spool-left" class="spool" onclick="togglePlay()">
+                        <div class="spool-inner"></div>
+                    </div>
+
+                    <!-- Right Spool: Spinning Disc -->
+                    <div id="spool-right" class="spool">
+                        <div class="spool-inner"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Original UI Layer (Nav & Footer) -->
+        <div id="main-ui-layer" class="flex flex-col h-full">
+            <audio id="audio-player" src="assets\012226_no9.wav" preload="metadata"></audio>
+
+            <!-- Cleaned up Nav: Only Status/Time remains? User said remove title and buttons -->
+            <nav class="grid grid-cols-12 h-16 shrink-0 bg-transparent">
+                <!-- Left empty -->
+                <div class="col-span-8 md:col-span-4 px-4 flex items-center">
+                    <!-- Removed Title -->
+                </div>
+
+                <!-- Center Info (Time/Status) - Keeping this for utility -->
+                <div class="hidden md:flex col-span-4 items-center px-4 justify-between text-white/50">
+                    <span id="status-text" class="text-[10px] font-mono">STANDBY</span>
+                    <div id="time-display" class="text-[10px] font-mono">0:00 / 0:00</div>
+                </div>
+
+                <!-- Right empty -->
+                <div class="col-span-4 md:col-span-4 flex items-center justify-end px-4 gap-4">
+                    <!-- Removed Buttons -->
+                </div>
+            </nav>
+
+            <main class="flex-1 min-h-0 relative">
+                <!-- Main Grid Lines Removed per user request -->
+            </main>
+
+            <footer
+                class="h-8 border-t border-white/10 shrink-0 bg-black/50 backdrop-blur-sm text-white/50 overflow-hidden flex items-center relative z-30">
+                <div class="animate-marquee whitespace-nowrap flex gap-8 text-xs font-mono">
+                    <span>LISTENING TO: PURE FICTION - CHAPTER 01: THE INK</span><span>///</span>
+                    <span>NO EFFECTS, JUST SOUND</span><span>///</span>
+                </div>
+            </footer>
+        </div>
+
+        <!-- Bottom Left Fixed Title -->
+        <div class="title-fixed">
+            <h1 class="text-4xl md:text-6xl font-black tracking-tighter leading-none opacity-90 mix-blend-difference">
+                PURE<br>FICTION
+            </h1>
+        </div>
+
+        <!-- Info Overlay -->
+        <div id="info-overlay"
+            class="hidden absolute inset-0 z-50 bg-black/90 backdrop-blur-lg flex items-center justify-center p-8">
+            <div class="bg-black text-[#EBEBEB] p-8 max-w-md w-full relative shadow-2xl border border-white/20">
+                <button onclick="toggleInfo()" class="absolute top-4 right-4 hover:text-[#0033FF] transition-colors">
+                    <i data-lucide="x" class="w-6 h-6"></i>
+                </button>
+                <h4 class="text-2xl font-bold mb-4 tracking-tighter">CONTROLS</h4>
+                <p class="font-serif text-sm leading-relaxed opacity-80 mb-6">
+                    SCROLL to explore tape artifacts.<br />
+                    LEFT SPOOL to Play/Pause.<br />
+                    RIGHT SPOOL visualizes playback.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        // --- Configuration ---
+        const CONFIG = {
+            ease: 0.08,        // Inertia smoothing (lower = smoother)
+            skewStrength: 0.2, // Skew intensity
+        };
+
+        // --- State ---
+        let state = {
+            currentScroll: 0,
+            targetScroll: 0,
+            scrollLimit: 0,
+            isPlaying: false,
+            playbackRotation: 0,
+        };
+
+        // --- Elements ---
+        const audio = document.getElementById('audio-player');
+        const tapeStrip = document.getElementById('tape-strip');
+        const cassetteUI = document.getElementById('cassette-ui');
+        const introBg = document.getElementById('intro-bg');
+        const spoolLeft = document.getElementById('spool-left');
+        const spoolRight = document.getElementById('spool-right').querySelector('.spool-inner');
+        const statusText = document.getElementById('status-text');
+        const timeDisplay = document.getElementById('time-display');
+        const infoOverlay = document.getElementById('info-overlay');
+
+        function update() {
+            // 1. Inertia Scroll Calculation
+            state.currentScroll = state.currentScroll + (state.targetScroll - state.currentScroll) * CONFIG.ease;
+            const velocity = state.targetScroll - state.currentScroll;
+            const progress = Math.max(0, Math.min(1, state.currentScroll / (state.scrollLimit || 1)));
+
+            // 2. Intro Background Fade Out
+            // Fade out quickly in the first 20% of scroll
+            const fadeThreshold = 0.2;
+            const fadeProgress = Math.min(1, progress / fadeThreshold);
+            introBg.style.opacity = 1 - fadeProgress;
+
+            // 3. Tape Strip Entry
+            // Start off-screen right (100vw). Enter as fade happens.
+            // Move from 100vw to -50vw (or whatever end point)
+            // When progress = 0, x = 80vw (visible but to the right? No, user said valid image enters AFTER fade)
+            // User: "When cassette drops, right images enter". Cassette drops at same time as fade.
+
+            // Let's map tape position to start entering only as we scroll
+            const startX = 80; // 80vw (just peeking or offscreen)
+            const endX = -100; // Far left
+
+            // Adjust start point so it's fully offscreen initially? 
+            // User: "Initially B/W background". So Tape should be hidden or behind? 
+            // Interaction: Scroll Down -> B/W fades -> Colored Tape slides in.
+
+            // Let's create a "slide in" phase.
+            // The tape strip x offset should correspond to scroll.
+            // Phase 1 (0-20%): Scroll is mostly fading the BG. Tape can start sliding in.
+            const currentX = 100 + (-180 * progress); // 100vw -> -80vw
+
+            const skew = Math.min(Math.max(velocity * CONFIG.skewStrength, -10), 10);
+            tapeStrip.style.transform = `translate3d(${currentX}vw, -50%, 0) skewX(${-skew}deg)`;
+
+            // 4. UI Drop Animation
+            // Drop down and scale
+            // enterThreshold defines how quickly it drops. 
+            const enterThreshold = 0.3; // 30% of scroll
+            let uiAnimProgress = Math.min(1, progress / enterThreshold);
+            const easeOut = 1 - Math.pow(1 - uiAnimProgress, 3);
+
+            // Drop down 150px
+            cassetteUI.style.transform = `translateY(${easeOut * 150}px) scale(${1 - (easeOut * 0.05)})`;
+
+            // Fade Matte Effect
+            const matteOpacity = Math.max(0, 0.05 - (easeOut * 0.05));
+            const blurAmount = Math.max(0, 10 - (easeOut * 10));
+
+            cassetteUI.style.background = `rgba(255, 255, 255, ${matteOpacity})`;
+            cassetteUI.style.backdropFilter = `blur(${blurAmount}px)`;
+            cassetteUI.style.webkitBackdropFilter = `blur(${blurAmount}px)`;
+
+            // 5. Spool Rotation
+            if (state.isPlaying) {
+                state.playbackRotation += 2;
+            }
+            const scrollRotation = state.currentScroll * 0.5;
+            spoolRight.style.transform = `rotate(${state.playbackRotation + scrollRotation}deg)`;
+
+            requestAnimationFrame(update);
+        }
+
+        // --- Event Listeners ---
+        window.addEventListener('scroll', () => {
+            state.targetScroll = window.scrollY;
+        });
+
+        window.addEventListener('resize', () => {
+            state.scrollLimit = document.body.scrollHeight - window.innerHeight;
+        });
+
+        // Initial setup
+        state.scrollLimit = document.body.scrollHeight - window.innerHeight;
+        requestAnimationFrame(update);
+
+        // --- Audio Logic ---
+        function togglePlay() {
+            if (audio.paused) {
+                audio.play();
+                state.isPlaying = true;
+                spoolLeft.classList.add('playing');
+                statusText.innerText = "PLAYING";
+                statusText.classList.add('text-[#0033FF]');
+            } else {
+                audio.pause();
+                state.isPlaying = false;
+                spoolLeft.classList.remove('playing');
+                statusText.innerText = "PAUSED";
+                statusText.classList.remove('text-[#0033FF]');
+            }
+        }
+
+        audio.addEventListener('timeupdate', () => {
+            const currentMin = Math.floor(audio.currentTime / 60);
+            const currentSec = String(Math.floor(audio.currentTime % 60)).padStart(2, '0');
+            const totalMin = Math.floor(audio.duration / 60) || 0;
+            const totalSec = String(Math.floor(audio.duration % 60) || 0).padStart(2, '0');
+            timeDisplay.innerText = `${currentMin}:${currentSec} / ${totalMin}:${totalSec}`;
+        });
+
+        audio.addEventListener('ended', () => {
+            state.isPlaying = false;
+            spoolLeft.classList.remove('playing');
+            statusText.innerText = "ENDED";
+        });
+
+        function toggleInfo() {
+            infoOverlay.classList.toggle('hidden');
+        }
+    </script>
+</body>
+
+</html>
